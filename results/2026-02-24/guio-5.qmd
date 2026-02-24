@@ -248,12 +248,12 @@ mtext('Base count', side = 2, line = 5)
 representar gráficamente la longitud acumulada de todas las secuencias
 disponibles a medida que se han ido publicando?
 ```{r}
-#| fig.width: 10
-par(mar = c(8,7,1,1))
-boxplot(base_count ~ last_updated, data = platelmintos,
-        las = 2, xlab = '', ylab = '', cex.axis = 0.8)
-mtext('Last updated', side = 1, line = 7)
-mtext('Base count', side = 2, line = 5)
+plat <-platelmintos
+plat$last_updated <- as.Date(plat$last_updated,
+                             '%Y-%m-%d')
+plat <- plat[order(plat$last_updated),]
+plat$cumLen <- cumsum(plat$base_count)
+plot(plat$last_updated, plat$cumLen, type = 'l')
 ```
 
 :::
