@@ -1,0 +1,189 @@
+---
+title: "Práctica 8. BLAST"
+format: html
+---
+
+# Ejercicio 1
+
+DATOS: descargados, descomprimidos y sestán guardados en la carpeta data dentro de bioinfo. Los datos de los genes de las especies blochmannia y buchnera vamos a compararlos mediante alineamiento local con los archivos FASTA (hacemos un BLAST). Son buscamos en el genoma aquellas proteínas de genes ortólogos, es decir, han evolucionado de un origen común pero están en especies distintas. Por esto tendrán parte de su secuencia en común.
+
+Primero enmascaramos (identificar y “ocultar” regiones de la secuencia que no son informativas o que podrían dar resultados falsos positivos) e indexamos (preparar las secuencias para búsquedas rápidas) los archivos de cada especie:
+
+```{bash}
+if [ ! -e ../../data/buchnera.paa ]; then
+   # Creamos un archivo para enmascarar zonas de baja complejidad:
+   if [ ! -e buchnera_seg.asnb ]; then
+      segmasker -in ../../data/buchnera.fa \
+                -infmt fasta \
+                -parse_seqids \
+                -outfmt maskinfo_asn1_bin \
+                -out ../../data/buchnera_seg.asnb
+   fi
+   # Y indexamos el archivo FASTA para BLAST:
+   makeblastdb  -in ../../data/buchnera.fa \
+                -input_type fasta \
+                -dbtype prot \
+                -parse_seqids \
+                -mask_data ../../data/buchnera_seg.asnb \
+                -out ../../data/buchnera \
+                -title "Proteoma de Buchnera"
+fi
+```
+
+```{bash}
+if [ ! -e ../../data/blochmannia ]; then
+   # Creamos un archivo para enmascarar zonas de baja complejidad:
+   if [ ! -e blochmannia_seg.asnb ]; then
+      segmasker -in ../../data/blochmannia.fa \
+                -infmt fasta \
+                -parse_seqids \
+                -outfmt maskinfo_asn1_bin \
+                -out ../../data/blochmannia_seg.asnb
+   fi
+   # Y indexamos el archivo FASTA para BLAST:
+   makeblastdb  -in ../../data/blochmannia.fa \
+                -input_type fasta \
+                -dbtype prot \
+                -parse_seqids \
+                -mask_data ../../data/blochmannia_seg.asnb \
+                -out ../../data/blochmannia \
+                -title "Proteoma de Blochmannia"
+fi
+```
+
+Con esto buscamos en el proteoma de buchnera aquellas proteínas que sean más similares a las de blochmannia:
+```{bash}
+blastp -query ../../data/buchnera.fa \
+       -db ../../data/blochmannia \
+       -out buc2blo.txt \
+       -outfmt '6 qseqid sseqid qlen slen length evalue bitscore' \
+       -evalue 0.001 \
+       -max_target_seqs 1
+```
+Y con esto buscamos las proteínas de blochmannia que se parecen mśa a las de buchnera:
+```{bash}
+blastp -query ../../data/blochmannia.fa \
+       -db ../../data/buchnera \
+       -out blo2buc.txt \
+       -outfmt '6 qseqid sseqid qlen slen length evalue bitscore' \
+       -evalue 0.001 \
+       -max_target_seqs 1
+```
+En el apartado "-out" le estamos poniendo el nombre al archivo resultante, que es buc2blo cuando buscamos en el proteoma de buchmania y blo2buc cuando buscamos en el de blochmannia. A continuación los ponemos en formato tabla para comparar resultados:
+```{r}
+buc2blo <- read.table(
+   'buc2blo.txt',
+   col.names = c('query', 'subject', 'qlen', 'slen',
+                 'length', 'evalue', 'bitscore')
+)
+blo2buc <- read.table(
+   'blo2buc.txt',
+   col.names = c('query', 'subject', 'qlen', 'slen',
+                 'length', 'evalue', 'bitscore')
+)
+```
+Para saber que alineamientos están mejores, miramos el bitscore, que es un valor que nos indica la calidad del alineamiento. Cuanto mayor es el bitscore, mejor es el alineamiento.
+Ordenando los resultados de la tabla por mayor bitscore, en ambos casos obtenemos el query tr|A0ABY4ST23|A0ABY4ST23_9ENTR de Blochmannia y sp|P57145|RPOC_BUCAI de Buchmania Buscando en uniprot los ID de las proteínas, encontramos que se trata de la proteína DNA-directed RNA polymerase subunit beta' de Blochmannia y la DNA-directed RNA polymerase subunit beta' de Buchnera (la misma proteína).
+
+Otra manera de obtener las proteínas mas similares:
+```{r}
+buc2blo$reverse <- blo2buc[
+   match(buc2blo$subject, blo2buc$query), #buscamos las proteínas que se encuentran en ambas tablas, que tanto en la primera búsqueda como en la segunda salen como que tienen secuencia común. En este caso está buscando los nombres de proteína de buchnera que se repiten en ambas tablas, pues en buc2blo están en la columna subject y en la blo2buc está en la query.
+   'subject'
+]
+coincidencias <- buc2blo[
+   buc2blo$query == buc2blo$reverse,
+   c('query', 'subject')
+]
+```
+
+### ¿Qué datos te gustaría representar gráficamente para ganar confianza en que los resultados son correctos y tienen sentido? 
+El dato más interesante para representar es el bitscore, que pondría el valor de bitscore de cada comparación en cada eje para observar las proteínas más afines en ambos casos. También sería interesante compararlos con el valor E.
+
+
+# Ejercicio 2
+DATOS: he ejecutado "update_blastdb --decompress swissprot" para tener la base de datos de Swissprot.
+El PSI-BLAST nos permite identificar semejanzas sutiles, como las que existen entre miembros alejados de una superfamilia proteica. 
+Para la proteína P39615:
+```{bash}
+# Como Swissprot debería estar ya descargada en `../../data`, podemos sacar
+# de ahí la secuencia de la proteína escogida:
+blastdbcmd -db ../../data/swissprot -entry P39615 -out P39615.fa
+
+# Y ahora la usamos como query en psi-blast:
+psiblast -db ../../data/swissprot \
+         -query P39615.fa \
+         -out P39615.blastout.txt \
+         -evalue 0.1 \
+         -outfmt 7 \
+         -inclusion_ethresh 0.001 \
+         -num_iterations 7 \
+         -matrix BLOSUM62
+```
+
+Para la proteína Q9CC91:
+```{bash}
+blastdbcmd -db ../../data/swissprot -entry Q9CC91 -out Q9CC91.fa
+# db es database, query es la entrada y le decimos el nombre que tiene que buscar
+psiblast -db ../../data/swissprot \
+         -query Q9CC91.fa \
+         -out Q9CC91.blastout.txt \
+         -evalue 0.1 \
+         -outfmt 7 \
+         -inclusion_ethresh 0.001 \
+         -num_iterations 7 \
+         -matrix BLOSUM62
+```
+El resultado de estos son los archivos P39615.blastout.txt y Q9CC91.blastout.txt, que son el ID de cada proteína.
+
+También podemos automatizar en un solo comando que haga lo mismo para las distintas proteínas:
+```
+for "proteina" in "Q9CC91 P39615 B1AJI8; do
+blastdbcmd -db ../../data/swissprot -entry $proteina -out $proteina.fa
+"..."
+done
+```
+asi, en un solo bloque ejecutamos y hacemos un montón de BLAST. Ha cambiado el valor de la matriz a BLOSUM45.
+En los archivos blastout vemos que conforme aumentan los valores de e disminuye el bitscore. Vemos que a cada iteración los valores e son más pequeños, hasta que al final en la última iteración te dice que ha convergido, es el máximo de buenas busquedas al que puede llegar.
+Como hemos utilizado el formato 7, al final del todo pone el Search has CONVERGED! sin ser introducido por una almohadilla, por lo que R intentaría leerlo. Podemos cambiarlo a mano o usando el formato 6 no pasaría esto (no pone cabeceras).
+
+### Consulta la ayuda de psiblast y asegúrate de entender para qué sirven los argumentos que hemos usado. Por ejemplo, ¿cuál es la diferencia entre -evalue y -inclusion_ethresh?¿Cómo harías que la búsqueda fuera más sensible todavía?
+Para obtener ayuda ponemos psiblast -help.
+-evalue: nos indica el valor E, que representa la cantidad de alineamientos que esperarías encontrar por azar con una puntuación igual o mejor que la del alineamiento observado. Cuando lo usamos en el formato -evalue en BLAST seguido de un valor que queremos, lo que hacemos es solo mostrar hits que tengan E-value menor o igual al que le indicamos.
+-inclusion_ethresh: define el umbral de E-value (e threshold) que determina qué secuencias encontradas se incluyen para construir la matriz PSSM (Position-Specific Scoring Matrix) en las iteraciones de PSI-BLAST.
+Mientras que -evalue decide qué resultados se muestran, -inclusion_ethresh decide qué resultados se usan para actualizar el modelo en la siguiente iteración (para analizar en el PSI-BLAST).
+
+# Ejercicio 3
+Hay dos motivos principales por los que muchos fragmentos no pueden mapearse al genoma de referencia: o bien el genoma de referencia es incompleto, o bien los fragmentos no pertenecen a esa especie.
+Los fragmentos de ADN secuenciados que no proceden del individuo diana se consideran contaminación. El objetivo de este ejercicio es determinar la procedencia de estos fragmentos mediante BLASTN remoto a la base de datos nr (no redundante). Lo que nos interesa es sólo el origen taxonómico de la secuencia más parecida a cada una de esas lecturas.
+De entre las 33174 queries, vamos a utilizar 20 al azar:
+```{r}
+library('Biostrings')
+unmapped <- readDNAStringSet('../../data/contaminacion.fa.gz')
+n <- length(unmapped)
+muestra <- unmapped[sample(1:n, 20)]
+writeXStringSet(muestra, 'muestra.fa')
+```
+Lo que hago es comparar lo que tengo (muestra) con la base de datos no redundante (nr) en busca del nombre de las especies que pueden haberse secuenciado que no es la principal.
+```{(bash)}
+if [ ! -e resultado.txt ]; then
+   blastn -query muestra.fa \
+          -db nr \
+          -out resultado.txt \
+          -outfmt '6 qaccver saccver length qlen qstart qend evalue bitscore staxid' \
+          -max_target_seqs 1 \
+          -evalue 0.001 \
+          -remote #lo que hemos quitado a partir del 2 es para que nos muestre los errores, si está lo del 2 no los muestra.
+fi
+```
+esto no ha terminado de funcionar. 
+Para conocer el identificador taxonómico de los resultados, intentaremos recuperar la información completa con una nueva consulta remota. 
+```{bash}
+# Extraemos los identificadores taxonómicos (columna 9) de "resultado.txt":
+cut -f 9 resultado.txt | sort | uniq | paste -sd ',' > taxids.txt
+
+# Generamos una tabla con información taxonómica de esos identificadores:
+datasets summary taxonomy taxon $(cat taxids.txt) --as-json-lines | \
+dataformat tsv taxonomy --template tax-summary > taxreport.txt
+```
+
