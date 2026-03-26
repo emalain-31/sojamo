@@ -1,0 +1,126 @@
+---
+title: "guion09.qmd"
+format: 
+   html: 
+    embed-resources: true #para que  todos los archivos que necesita el html o que genera se queden en el mismo archivo, si no se toma la libertad de ocupar lo que quiera y generar archivos o carpetas secundarios.
+---
+```{r}
+library(phangorn)
+mtdna <- read.phyDat('../../data/mtDNA.fasta', format = 'fasta')
+glance(mtdna)
+modelos <- modelTest(mtdna, 
+    control = pml.control(trace = 0))
+```
+En los resultados de modelo nos podemos fijar o en el BIC o el AIC. A menor AIC, mejor es el modelo. Así pues, vamos a utilizar el modelo TIM2+G(4)+I.
+Vamos a utilizar el que mejor se ajusta, pero realmente ha hecho todos los ajustes y le puedo pedir ver uno específico. Por ejemplo, puedo extraer un ajuste fit:
+```{r}
+fit <- as.pml(modelos, 'GTR+G(4)+I') # lo vemos en la consola de r
+```
+
+```{r}
+#| fig-width: 8
+#| fig-height: 10
+mt_nj    <-    NJ(dist.dna(as.DNAbin(mtdna), model = 'TN93', gamma = 0.93))
+mt_upgma <- upgma(dist.dna(as.DNAbin(mtdna), model = 'TN93', gamma = 0.93))
+plot(midpoint(mt_nj))
+add.scale.bar()
+
+
+plot(mt_upgma)
+axisPhylo()
+```
+### ¿Por qué usamos midpoint() al representar gráficamente el árbol de NJ? 
+Porque naturalmente un árbol NJ no está enraizado, y así une los resultados y parece enraizado. Coloca la raíz en el punto medio del camino más largo entre dos taxones del árbol.
+
+Para enraizar el árbol:
+```{r}
+#| fig-height: 10
+#| fig-width: 7
+enraizado <- root(mt_nj, 'G.gorilla_D38114')
+plot(enraizado)
+```
+```{r}
+veros <- pml_bb(mtdna, model = 'GTR+G(4)+I',
+                control = pml.control(trace = 0))
+```
+```{r}
+#| fig-height: 10
+#| fig-width: 10
+mt_ml <- root(veros$tree, 'G.gorilla_D38114')
+plot(midpoint(mt_ml))
+nodelabels() # Con nodelabels() identifico fácilmente cuál es el nodo en el que quiero recortar el árbol
+```
+
+```{r}
+homo <- extract.clade(mt_ml, 50)
+plot(midpoint(homo))
+```
+
+Añadir fechas a cada especie (tip dating):valor 0 a todas las secuencias contemporáneas y valores negativos, en años, a las secuencias arcaicas. Se las doy manualmente, en orden de aparición en el arbol mt_nj. Podemos ver el orden en el que aparecen las puntas de los árboles poniendo en la consola de r "mt_nj$tip.label"
+```{r}
+fechas <- c(0, 0, 0, 0, 0, 0, 0, 0, 0,
+              -400000,
+              -39000, -50000, -110000, -110000,
+              -39820, -40096, -38515, -38310, -39000, -40000, -41210,
+              -42430, -42540, -43230, -43780, -44290, -44770, -49000,
+              -50000, -82752, -65000, -122287, -110450,
+              0, 0, 0, 0, 0, 0, 0, 0, 0)
+setNames(fechas, names(mtdna))
+```
+
+```{r}
+fit_td <- pml_bb(mtdna, model = 'GTR+G(4)+I', method = 'tipdated',
+                 tree = enraizado,
+                 tip.dates = fechas, rearrangement = 'NNI',
+                 control = pml.control(trace = 0))
+```
+Le estamos diciendo las fechas de cada punta, y usamos el método tipdated: oblicamos a que el arbol sea ultramétrico (técnicamente no lo es, es casi ultramétrico, pero el árbol respeta estas edades).
+```{r}
+#| fig-height: 9
+plot(fit_td)
+```
+vemos como las especies más arcaicas quedan hacia el interior.
+Vamos a intentar usar plotTreeTime, donde ademas de decirle el arbol (phy), también le damos las fechas de las puntas.
+```{r}
+plotTreeTime(fit_td$tree, fechas) #añadimos $tree porque el objeto fit_td no solo tiene el árbol, tiene otras cosas. así sacamos el árbol del documento entero.
+```
+En orden de grupos salen, de arriba a abajo: gorilas (el outgrup), chimpancés, denisova, heidelbergnesis, neandertales y modernos.
+es curioso porque cuando se hace filogenia con el DNA nuclear se ve que los denisovanos están más proximos evolutivamente a los neandertales que a los heidelbergensis. Los denisovanos compartían ancestros más cercanos con los neandertales que con los otros, aunque en este arbol con el mtDNA nos los pone más próximos.
+
+podemos utilizar:
+estimate.mu(): es una funcion que necesita las puntas o nodos datados. Nos permite estimar el reloj molecular, la tasa molecular media a la que evolucionan. esto se aplica automáticamente cuando utilizamos estimate.dates(), que estima las fechas de los nodos para los cuales no tenemos información en el vector de edades.
+Dándole las edades a los nodos, estima la tasa de mutación de las bases que le faltan a las secuencias. 
+Para decirle que no conocemos una fecha le ponemos N/A.
+Otra manera es decirle vamos a suponer que el ancestro mas comun entre modernos y neandertales fue hacee 6.5 millones de años. Entonces, si utilizamos node.dates le podemos decir la fecha del nodo de divergencia. OJO, todas las fechas deben estar en las mismas unidades, así que habrá que decir -6500000.
+
+```{r}
+estimate.mu(mt_ml, fechas, p.tol = 0.05)
+```
+El resultado de estimate.mu es 2.18e-08, esto es la tasa de cambio: por cada posición y unidad de tiempo (años) hay 2.18e-08 sustituciones.
+
+Para estimate.dates, no nos sale bien, pero sería algo similar a esto:
+```{r}
+estimate.dates(mt_ml, fechas, mu = estimate.mu(mt_ml, fechas),
+               min.date = -.Machine$double.xmax, show.steps = 0,
+               opt.tol = 1e-8, nsteps = 1000,
+               lik.tol = 0, is.binary = is.binary.phylo(mt_ml))
+```
+
+```{r}
+plot(midpoint(mt_ml$tree), show.tip.label=FALSE)
+```
+mt_ml$tree$edge le estamos diccciendo que nos muestre donde conectan las ramas, son los nodos internos y externos. como hay 46 puntas en el árbol, aquellos con puntuación mayor a 42 son nodos internos.
+Como le digo midpoint, artificialmente añade el 43 cuando realmente debería ser un arbol no enraizado y este no debería de estar aquí, el valor 43.
+La cosa es que esta es la unica manera de observar el valor 83.
+
+Creo un vector donde defino las fechas de los nodos. Tampoco nos sale esto ultimo.
+```{r}
+nodedates <- c(fechas, rep(NA, 40))
+nodedates[51] <- -6500000
+z <- root(mt_ml$tree, 'G.gorilla_D38114')
+plot(z, show.tip.label=FALSE)
+```
+
+
+
+
