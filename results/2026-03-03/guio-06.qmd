@@ -3,7 +3,7 @@ title: "Búsquedas programáticas en Interpro"
 lang: es
 date: today
 execute: 
-  output: false
+  output: true
   error: true
 engine: knitr
 language:
