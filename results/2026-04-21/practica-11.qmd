@@ -1,0 +1,96 @@
+---
+title: "Práctica 11. Anotación de genomas"
+format: html 
+embed-resources: true
+bibliography: ../../doc/references.bib
+editor: visual
+engine: knitr
+---
+
+Para empezar, hemos descargado las 6023 proteínas que codifica el cromosoma 4 de Arabidopsis thalina desde Uniprot.
+
+Para realizar la anotación utilizaríamos los programas RepeatModeler (Flynn et al. 2020), RepeatMasker, y GALBA (Bruna et al. 2023). En el ordenador virtual no están instalados y no los vamos a utilizar.
+
+-   RepearModeler: usa solo el ensamblaje para identificar elementos repetitivos y genera un archivo FASTA con las secuencias consenso de los elementos transponibles. Este archivo después sirve para enmascarar el genoma (para que a estas secuencias no se les haga caso)
+
+-   RepeatMaster: enmascara todas las instancias de elementos repetitivos que pueda encontrar, en base a una librería de elementos repetitivos previamente conocidos.
+
+-   GALBA: alinea las proteínas al ensamblaje y sirve para encontrar genes homólogos a los que las codifican. A partir de estos resultados, entrena a Augustus para definir mejor los bordes de los genes y posiblemente encontrar otros genes adicionales.
+
+### Ejercicio 1. Modificación de los nombres de las proteínas
+
+Al descargar las proteínas del cromosoma 4 de A. thaliana, el archivo FASTA contiene cabeceras demasiado extensas (\>sp\|Q0WVX5\|SSY4_ARATH Probable starch synthase 4, chloroplastic/amyloplastic OS=Arabidopsis thaliana OX=3702 GN=SS4 PE=1 SV=1).
+
+Para facilitar el trabajo de GALBA vamos a modificar las cabeceras o nombres de las secuencias para obtener líneas más sencillas (\>Q0WVX5).
+
+```{bash}
+if [ ! -e proteinas.fasta ]; then
+awk '(/^>/){split($1, A, /\|/); print ">" A[2]}(/^[^>]/){print $0}' ../../data/uniprot-practica-11.fasta > proteinas.fasta
+fi
+# SINTAXIS AWK: awk '...' input > output
+```
+
+### Ejercicio 2. RepeatModeler
+
+Desde el AV descargamos los resultados de Repeatmodeler.
+
+1.  ¿Cuántas familias de elementos transponibles se han encontrado?
+
+En el archivo run.log, que contiene información sobre el análisis realizado, en la ronda final del análisis pone "24 families found", por lo que podemos deducir que ha encontrado 24 familias de elementos transponibles.
+
+2.  ¿Cuánto duró la ejecución del programa?
+
+"Program Time: 01:02:16 (hh:mm:ss)"
+
+3.  ¿Cuál dirías que es el archivo de salida más importante?
+
+Creo que, aunque lo que buscas son los resultados, es muy importante el archivo run.log ya que contiene toda la información sobre el análisis que se ha realizado, con cada una de las rondas de identificación de las familias y también te permite conocer la utilidad del resto de archivos.
+
+Dentro de los resultados, el archivo más relevante es families.fa, ya que contiene las secuencias de las familias de elementos transponibles que ha identificado.
+
+Los archivos más importantes son At4-families.fa (archivo fasta con las secuencias consenso de cada familia identificada. también podemos ver el tamaño de la familia, donde te dice cuántas secuencias se agrupan en esta secuencia consenso que te muestra), St4-families.stk (alineamientos en formato estocolmo, bastante antiguo donde se ven todas las secuencias) y At4-rmod.log.
+
+*Realmente no era necesario hacer esto porque se saben ya los elementos transponibles de Arabidopsis thaliana, se encuentran en las bases de datos y se pueden usar directametne para los siguientes pasos, pero así vemos cómo se haría.*
+
+### Ejercicio 3. RepeatMasker
+
+En los resultados de RepeatMasker se han sustituido las secuencias de los elementos transponibles por Ns, de manera que no son legibles y se pierde esta información. Este enmascarado es duro, y GALBA utiliza un enmascarado suave. Para pasarlo a suave utilizamos bedtools.
+
+Primero descargamos bedtools, a través de github (versión 2.31.0, que es la más reciente estática) y lo movemos a bin y lo convertimos en ejecutable gracias al comando "chmod a+x bedtools".
+
+Para asegurarnos de que este archivo ejecutable está en el path:
+
+```{bash}
+echo 'export PATH=$PATH:~/bin/bedtools' >> ~/.bashrc
+```
+
+```{bash}
+bedtools maskfasta -fi ../2026-04-16/asm1/At4.fa -bed RepeatMaskerResults/RM01/At4.fa.out.gff -fo At4.soft.fa
+```
+
+En los resultados encontramos cómo hace el enmascaramiento poniendo Ns, en el archivo At4.fa.masked. El archivo enmascarado que utilizamos es At4.fa.out.gff, pero como queremos el enmascaramiento suave hemos usado bedtools para ahora utilizar At4.sof.fa.
+
+### Ejercicio 4 y 5. GALBA
+
+```{bash}
+#| eval: false
+export TSEBRA_PATH=/home/bin/TSEBRA/bin/
+export MINIPROTHINT_PATH=/home/bin/miniprothint/
+
+galba.pl --species="Arabidopsis thaliana" \  # le decimos a qué especie pertenece, necesario para entrenar a AUGUSTUS
+         --genome=At4.soft.fa \
+         --prot_seq=proteinas.fasta
+```
+
+Los resultados de GALBA los encontramos en el aula virtual (galba.zip).
+
+***Échales un vistazo a los archivos de salida de GALBA y trata de sacar algo en claro.***
+
+El archivo principal, *el más importante*, es galba.gtf (los archivos .gtf o .gff son los que contienen las secuencias proteicas y sirven para la anotación). Nos dice qué ha encontrado (intrón, exón o secuencia codificante), donde empieza y donde termina, si pertenece a la cadena complementaria o codificante, a qué transcrito o gen pertenece... *Obviamente se puede estar equivocando en muchas cosas, pero es información fundamental y hay baja tasa de error.*
+
+El archivo hintsfile.gff indica qué evidencia se usó (por ejemplo RNA-seq, proteínas...).
+
+Augustus es un programa de machine learning que se utiliza para identificar bien los genes, con los mejores alineamientos. En el archivo augustus.hints.gff encontramos las "hinits" que usa augustus para predecir los genes, con pistas de RNA-seq o proteínas. Sirve para entender cómo se ha hecho la anotación, rehacerla o ajustarla.
+
+El archivo miniprot.gff contiene los alineamientos de proteínas contra el genoma, es decir, la evidencia. Sirve para comparar la predicción con la evidencia, no es la anotación final.
+
